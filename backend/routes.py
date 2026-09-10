@@ -6,9 +6,9 @@ from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
-from . import audio, cache, config, parallel, rime, segmenter
+from . import audio, cache, config, parallel, rime, segmenter, sentence_sets
 
 router = APIRouter(prefix="/api")
 
@@ -156,6 +156,48 @@ def speak_baseline(req: SpeakRequest):
 @router.get("/sentences")
 def get_sentences():
     return json.loads(SENTENCES_PATH.read_text(encoding="utf-8"))
+
+
+class SentenceSetCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=32)
+    sentences: list[str] = Field(min_length=1, max_length=50)
+
+
+@router.get("/sentences/sets")
+def list_sentence_sets():
+    """Custom user sets (the pinned eval set is GET /api/sentences)."""
+    return {"sets": sentence_sets.list_sets()}
+
+
+@router.post("/sentences/sets", status_code=201)
+def create_sentence_set(req: SentenceSetCreate):
+    try:
+        return sentence_sets.create_set(req.name, req.sentences)
+    except FileExistsError as e:
+        return JSONResponse(status_code=409, content={"error": str(e)})
+    except ValueError as e:
+        return JSONResponse(status_code=422, content={"error": str(e)})
+
+
+@router.get("/sentences/sets/{name}")
+def get_sentence_set(name: str):
+    try:
+        return {"name": name, "sentences": sentence_sets.get_set(name)}
+    except FileNotFoundError as e:
+        return JSONResponse(status_code=404, content={"error": str(e)})
+    except ValueError as e:
+        return JSONResponse(status_code=422, content={"error": str(e)})
+
+
+@router.delete("/sentences/sets/{name}")
+def delete_sentence_set(name: str):
+    try:
+        sentence_sets.delete_set(name)
+        return {"deleted": name}
+    except FileNotFoundError as e:
+        return JSONResponse(status_code=404, content={"error": str(e)})
+    except ValueError as e:
+        return JSONResponse(status_code=422, content={"error": str(e)})
 
 
 @router.get("/cache/stats")
