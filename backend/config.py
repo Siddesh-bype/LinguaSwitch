@@ -59,3 +59,6 @@ BASELINE_MAX_WORKERS = int(os.getenv("BASELINE_MAX_WORKERS", "4") or 4)
 # eval timings always reflect live calls. Set CACHE_TTL_S=0 to disable.
 CACHE_TTL_S = int(os.getenv("CACHE_TTL_S", "300") or 300)
 CACHE_MAX_ENTRIES = int(os.getenv("CACHE_MAX_ENTRIES", "200") or 200)
+
+# Per-request log verbosity for ObservabilityMiddleware (DEBUG/INFO/...).
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
