@@ -670,6 +670,11 @@ export default function Home() {
         )}
       </div>
 
+      <p style={{ margin: "0 0 4px" }}>
+        <Link href="/eval" style={{ color: "var(--ink-muted)" }}>
+          Eval dashboard (measured A/B summary)
+        </Link>
+      </p>
       <footer style={{ marginTop: 24, ...prose, fontSize: 13 }}>
         LinguaSwitch ΓÇö Rime TTS track demo. Backend: {API} (override with NEXT_PUBLIC_API_BASE). Audio and timings regenerate locally via scripts/.
       </footer>

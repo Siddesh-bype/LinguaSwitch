@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import config, streaming
 from .agent_routes import router as agent_router
+from .eval_routes import router as eval_router
 from .metrics_routes import router as metrics_router
 from .observability import ObservabilityMiddleware
 from .ratings_routes import router as ratings_router
@@ -26,6 +27,7 @@ app.add_middleware(
 
 app.include_router(router)
 app.include_router(agent_router)
+app.include_router(eval_router)
 app.include_router(metrics_router)
 app.include_router(ratings_router)
 app.include_router(streaming.ws_router)
