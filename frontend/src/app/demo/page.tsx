@@ -27,6 +27,42 @@ type HistoryRow = {
 
 const HISTORY_KEY = "linguaswitch-history-v1";
 const HISTORY_LIMIT = 10;
+const RATER_KEY = "linguaswitch-rater";
+
+type VoteTotals = { X: number; Y: number; same: number };
+type VoteTally = {
+  votes: number;
+  raters: string[];
+  totals: VoteTotals;
+  per_question: Record<string, VoteTotals>;
+};
+
+async function fetchTally(): Promise<VoteTally | null> {
+  try {
+    const res = await fetch(`${API}/api/ratings/tally`);
+    if (!res.ok) return null;
+    return (await res.json()) as VoteTally;
+  } catch {
+    return null;
+  }
+}
+
+async function castVote(rater: string, question: string, choice: "X" | "Y" | "same"): Promise<string | null> {
+  try {
+    const res = await fetch(`${API}/api/ratings/vote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rater, question, choice }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => null)) as { error?: string } | null;
+      return err?.error ?? `HTTP ${res.status}`;
+    }
+    return null;
+  } catch (e) {
+    return String(e);
+  }
+}
 
 type AgenticMetricsA = { ttfa_ms: number; total_ms: number; api_calls: number };
 type AgenticMetricsB = AgenticMetricsA & {
@@ -278,6 +314,10 @@ export default function Home() {
   const [blindMap, setBlindMap] = useState<{ x: "a" | "b" } | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [agentic, setAgentic] = useState<AgenticState>({ status: "idle" });
+  const [rater, setRater] = useState("");
+  const [tally, setTally] = useState<VoteTally | null>(null);
+  const [voting, setVoting] = useState(false);
+  const [voteMsg, setVoteMsg] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${API}/api/sentences`)
@@ -292,6 +332,12 @@ export default function Home() {
       .then((r) => setBackendUp(r.ok))
       .catch(() => setBackendUp(false));
     setHistory(loadHistory());
+    try {
+      setRater(localStorage.getItem(RATER_KEY) ?? "");
+    } catch {
+      /* private mode: rater name just won't persist */
+    }
+    fetchTally().then(setTally);
   }, []);
 
   const text = custom.trim() || sentences.find((s) => String(s.id) === selected)?.text || "";
@@ -347,6 +393,37 @@ export default function Home() {
     if (!text || busy || agenticBusy) return;
     setAgentic({ status: "loading" });
     runAgentic(text).then(setAgentic);
+  };
+
+  // Live straw-poll votes (server tally). The official record stays the
+  // rater packet (responses.csv); this is the casual demo counterpart.
+  // Question key tracks the current sentence so votes group per sentence.
+  const voteQuestion = custom.trim() ? "demo-custom" : selected ? `demo-s${selected}` : "";
+  const canVote = blind && a.status === "ok" && b.status === "ok" && !voting && voteQuestion !== "";
+
+  const vote = (choice: "X" | "Y" | "same") => {
+    const name = rater.trim();
+    if (!name) {
+      setVoteMsg("Type a rater name first (it labels your votes in the tally).");
+      return;
+    }
+    if (!canVote) return;
+    setVoting(true);
+    setVoteMsg(null);
+    try {
+      localStorage.setItem(RATER_KEY, name);
+    } catch {
+      /* ignore */
+    }
+    castVote(name, voteQuestion, choice).then((err) => {
+      setVoting(false);
+      if (err) {
+        setVoteMsg(`Vote failed: ${err}`);
+        return;
+      }
+      setVoteMsg(`Recorded ${choice} for ${voteQuestion}. Revoting overwrites your last vote.`);
+      fetchTally().then(setTally);
+    });
   };
 
   const winner = useMemo(() => {
@@ -447,6 +524,47 @@ export default function Home() {
       </div>
 
       <LatencyBars a={a} b={b} />
+
+      <div style={{ ...card, marginTop: 16 }}>
+        <h3 style={{ margin: "0 0 8px", fontSize: 16 }}>Live straw poll (blind votes)</h3>
+        <p style={{ ...prose, fontSize: 13 }}>
+          Which clip sounds more natural? Votes post to the server tally below. The official record stays the rater packet
+          (`responses.csv`); this is the casual demo counterpart. One vote per rater per sentence - revoting overwrites.
+        </p>
+        {!blind && (
+          <p style={{ ...prose, fontSize: 13 }} role="status">
+            Enable blind mode above first, so X/Y labels hide which clip is which.
+          </p>
+        )}
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
+          <label style={{ fontSize: 14 }}>
+            Rater
+            <input
+              value={rater}
+              onChange={(e) => setRater(e.target.value)}
+              placeholder="yourname"
+              style={{ ...field, width: 160 }}
+            />
+          </label>
+          {(["X", "Y", "same"] as const).map((c) => (
+            <button key={c} style={ghostBtn} onClick={() => vote(c)} disabled={!canVote}>
+              Vote {c}
+            </button>
+          ))}
+        </div>
+        {voteMsg && (
+          <p style={{ ...prose, fontSize: 13 }} role="status">{voteMsg}</p>
+        )}
+        {tally ? (
+          <p style={{ ...prose, fontSize: 13, margin: "8px 0 0" }} role="status">
+            Server tally: {tally.votes} votes from {tally.raters.length} rater(s) - X {tally.totals.X}, Y {tally.totals.Y}, same {tally.totals.same}.
+          </p>
+        ) : (
+          <p style={{ ...prose, fontSize: 13 }} role="status">
+            Tally unavailable (older backend without the ratings API, or backend unreachable).
+          </p>
+        )}
+      </div>
 
       <div style={{ ...card, marginTop: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
