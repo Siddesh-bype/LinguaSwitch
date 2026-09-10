@@ -222,7 +222,7 @@ export default function Home() {
       </div>
 
       <footer style={{ marginTop: 24, ...prose, fontSize: 13 }}>
-        DataForge — Rime TTS track demo. Backend: {API}. Audio and timings regenerate locally via scripts/.
+        LinguaSwitch — Rime TTS track demo. Backend: {API}. Audio and timings regenerate locally via scripts/.
       </footer>
     </main>
   );

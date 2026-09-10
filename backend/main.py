@@ -1,4 +1,4 @@
-"""FastAPI app for the DataForge native-vs-baseline TTS demo."""
+"""FastAPI app for the LinguaSwitch native-vs-baseline TTS demo."""
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,7 +7,7 @@ from . import streaming
 from .agent_routes import router as agent_router
 from .routes import router
 
-app = FastAPI(title="DataForge TTS backend")
+app = FastAPI(title="LinguaSwitch TTS backend")
 
 app.add_middleware(
     CORSMiddleware,

@@ -1,4 +1,4 @@
-# RIME_EVIDENCE.md — Evidence for the DataForge claim
+# RIME_EVIDENCE.md — Evidence for the LinguaSwitch claim
 
 ## Claim (falsifiable)
 

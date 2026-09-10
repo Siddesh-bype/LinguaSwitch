@@ -1,4 +1,4 @@
-# DataForge — does native code-switching beat segment-and-route for Hinglish voice?
+# LinguaSwitch — does native code-switching beat segment-and-route for Hinglish voice?
 
 ![Python 3.13](https://img.shields.io/badge/python-3.13-blue?logo=python)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi)
@@ -6,7 +6,7 @@
 ![Rime Coda](https://img.shields.io/badge/Rime-Coda-7c3aed)
 ![Groq](https://img.shields.io/badge/Groq-gpt--oss--20b-ff4d00)
 
-> **30-second pitch:** Indians talk to voice assistants in Hinglish — Hindi and English *inside one sentence*. Most TTS pipelines either force one language or swap voices mid-sentence and stitch the audio. DataForge tests the alternative: one native code-switched call (Rime Coda) against the stitch-together baseline, on the same 10 sentences, with blind human ratings and measured latency. **Result so far: native is ≈2.3× faster end-to-end; the naturalness verdict awaits blind raters.**
+> **30-second pitch:** Indians talk to voice assistants in Hinglish — Hindi and English *inside one sentence*. Most TTS pipelines either force one language or swap voices mid-sentence and stitch the audio. LinguaSwitch tests the alternative: one native code-switched call (Rime Coda) against the stitch-together baseline, on the same 10 sentences, with blind human ratings and measured latency. **Result so far: native is ≈2.3× faster end-to-end; the naturalness verdict awaits blind raters.**
 
 ![Architecture](assets/architecture.svg)
 
