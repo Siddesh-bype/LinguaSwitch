@@ -1,7 +1,8 @@
 """Run the 10-sentence A/B eval: native Rime code-switching vs segment-and-route.
 
 Path A: one rime.speak(text, DEFAULT_LANG) — native code-switching.
-Path B: segment_timed(text) -> sequential rime.speak per segment -> concat_wav.
+Path B: segment_timed(text) -> per-segment rime.speak (sequential by
+default, --parallel fans out) -> concat_wav.
 
 Clips   -> data/clips/s{id}_a.wav, s{id}_b.wav
 Timings -> data/timings.jsonl (one row per path, appended)
@@ -12,19 +13,20 @@ Timings -> data/timings.jsonl (one row per path, appended)
 import argparse
 import json
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backend import audio, config, rime  # noqa: E402
+from backend import audio, config, parallel, rime  # noqa: E402
 from backend.segmenter import segment_timed  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 TIMINGS = config.DATA_DIR / "timings.jsonl"
 
 
-def run_sentence(s: dict) -> list[dict]:
+def run_sentence(s: dict, use_parallel: bool = False) -> list[dict]:
     sid, text = s["id"], s["text"]
     rows = []
 
@@ -38,26 +40,28 @@ def run_sentence(s: dict) -> list[dict]:
         "timestamp": datetime.now().isoformat(timespec="seconds"),
     })
 
-    # Path B: segment -> sequential per-segment calls -> concat
+    # Path B: segment -> per-segment calls (sequential by default,
+    # --parallel fans out) -> concat
     segs, seg_ms = segment_timed(text)
+    t0 = time.perf_counter()
+    rendered = parallel.render_segments(segs, parallel=use_parallel)
+    wall_ms = int((time.perf_counter() - t0) * 1000)
     wavs, seg_total, first_ttfa = [], 0, 0
-    for seg in segs:
-        # Same per-language speaker swap as backend/routes.py (one voice per language).
-        out = rime.speak(
-            seg["text"],
-            config.LANG_MAP.get(seg["lang"], config.DEFAULT_LANG),
-            config.SPEAKER_MAP.get(seg["lang"], config.RIME_SPEAKER),
-        )
+    for out in rendered:
         if not wavs:
             first_ttfa = out["ttfa_ms"]
         wavs.append(out["audio"])
         seg_total += out["total_ms"]
+    # Parallel wall time is the honest total (segments overlap); the
+    # summed figure is kept for comparability with sequential runs.
+    total_b = seg_ms + (wall_ms if use_parallel else seg_total)
     (config.CLIPS_DIR / f"s{sid}_b.wav").write_bytes(audio.concat_wav(wavs))
     rows.append({
         "sentence_id": sid, "path": "b",
         # TTFA for the whole path = segmentation + first segment's first byte
         "ttfa_ms": seg_ms + first_ttfa,
-        "total_ms": seg_ms + seg_total,
+        "total_ms": total_b,
+        "mode": "parallel" if use_parallel else "sequential",
         "segment_ms": seg_ms, "api_calls": len(segs) + 1, "segments": len(segs),
         "timestamp": datetime.now().isoformat(timespec="seconds"),
     })
@@ -67,6 +71,9 @@ def run_sentence(s: dict) -> list[dict]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ids", help="comma-separated sentence ids to re-run, e.g. 1,5,10")
+    ap.add_argument("--parallel", action="store_true",
+                    help="fan out Path B per-segment calls concurrently "
+                         "(rows are tagged mode=parallel; default is sequential)")
     args = ap.parse_args()
 
     sentences = json.loads((ROOT / "sentences.json").read_text(encoding="utf-8"))["sentences"]
@@ -84,7 +91,7 @@ def main() -> None:
     with TIMINGS.open("a", encoding="utf-8") as f:
         for s in sentences:
             try:
-                rows = run_sentence(s)
+                rows = run_sentence(s, use_parallel=args.parallel)
             except Exception as e:  # noqa: BLE001 — eval reports raw failures, keeps going
                 print(f"[s{s['id']}] FAILED: {type(e).__name__}: {e}")
                 continue

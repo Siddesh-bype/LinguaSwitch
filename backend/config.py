@@ -46,3 +46,9 @@ CLIPS_DIR = DATA_DIR / "clips"
 # Mock audio is synthetic and must never be written to data/timings.jsonl.
 MOCK_TTS = os.getenv("MOCK_TTS", "0") == "1"
 MOCK_SEGMENTER = os.getenv("MOCK_SEGMENTER", "0") == "1"
+
+# Path B fan-out (see backend/parallel.py). Default sequential preserves
+# the published eval numbers; opt in per-request (parallel:true) or
+# globally for a session via BASELINE_PARALLEL=1.
+BASELINE_PARALLEL_DEFAULT = os.getenv("BASELINE_PARALLEL", "0") == "1"
+BASELINE_MAX_WORKERS = int(os.getenv("BASELINE_MAX_WORKERS", "4") or 4)

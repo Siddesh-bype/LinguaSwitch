@@ -1,13 +1,14 @@
 """API routes: native (Path A) vs segment-and-route baseline (Path B)."""
 import base64
 import json
+import time
 from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 
-from . import audio, config, rime, segmenter
+from . import audio, config, parallel, rime, segmenter
 
 router = APIRouter(prefix="/api")
 
@@ -22,6 +23,10 @@ MAX_TEXT_CHARS = 1000
 class SpeakRequest(BaseModel):
     text: str
     router_model: str | None = None
+    # Opt-in to concurrent per-segment synthesis (backend/parallel.py).
+    # None -> server default (config.BASELINE_PARALLEL_DEFAULT, off unless
+    # BASELINE_PARALLEL=1). Reported back as "mode" in the response.
+    parallel: bool | None = None
 
     @field_validator("text")
     @classmethod
@@ -61,24 +66,24 @@ def speak_baseline(req: SpeakRequest):
         )
 
     results = []
+    use_parallel = req.parallel if req.parallel is not None else config.BASELINE_PARALLEL_DEFAULT
     try:
-        for seg in segments:
-            # A Rime voice serves one language: swap speaker per segment.
-            r = rime.speak(
-                seg["text"],
-                config.LANG_MAP.get(seg["lang"], config.DEFAULT_LANG),
-                config.SPEAKER_MAP.get(seg["lang"], config.RIME_SPEAKER),
-            )
-            results.append(r)
+        t0 = time.perf_counter()
+        results = parallel.render_segments(segments, parallel=use_parallel)
+        wall_ms = int((time.perf_counter() - t0) * 1000)
         combined = audio.concat_wav([r["audio"] for r in results])
     except Exception as e:
         return JSONResponse(status_code=502, content={"error": str(e), "provider": "rime", "fallback": "none"})
 
+    # Honest totals: sequential sums per-segment times (historical
+    # behavior); parallel measures wall time (segments overlap).
+    total_ms = segment_ms + (wall_ms if use_parallel else sum(r["total_ms"] for r in results))
     return {
         "audio_b64": base64.b64encode(combined).decode(),
         "segment_ms": segment_ms,
         "ttfa_ms": segment_ms + (results[0]["ttfa_ms"] if results else 0),
-        "total_ms": segment_ms + sum(r["total_ms"] for r in results),
+        "total_ms": total_ms,
+        "mode": "parallel" if use_parallel else "sequential",
         "api_calls": len(segments) + 1,
         "segments": [
             {
