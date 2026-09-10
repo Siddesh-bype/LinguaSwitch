@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from . import audio, config, rime, segmenter
 
@@ -13,10 +13,24 @@ router = APIRouter(prefix="/api")
 
 SENTENCES_PATH = Path(__file__).resolve().parent.parent / "sentences.json"
 
+# Shared input guard: Rime rejects empty text and bills per call, so fail
+# fast with a 422 before any provider call. 1000 chars keeps demo + eval
+# sentences well under provider limits while blocking pasted-article abuse.
+MAX_TEXT_CHARS = 1000
+
 
 class SpeakRequest(BaseModel):
     text: str
     router_model: str | None = None
+
+    @field_validator("text")
+    @classmethod
+    def text_must_be_speakable(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("text must not be empty")
+        if len(v.strip()) > MAX_TEXT_CHARS:
+            raise ValueError(f"text must be <= {MAX_TEXT_CHARS} characters")
+        return v
 
 
 @router.post("/speak/native")
@@ -39,6 +53,12 @@ def speak_baseline(req: SpeakRequest):
         segments, segment_ms = segmenter.segment_timed(req.text, req.router_model)
     except Exception as e:
         return JSONResponse(status_code=502, content={"error": str(e), "provider": "groq", "fallback": "none"})
+
+    if not segments:
+        return JSONResponse(
+            status_code=502,
+            content={"error": "segmenter returned no segments", "provider": "groq", "fallback": "none"},
+        )
 
     results = []
     try:

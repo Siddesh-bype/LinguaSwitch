@@ -3,9 +3,10 @@ import base64
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from .agent_graph import run_agentic
+from .routes import MAX_TEXT_CHARS
 
 router = APIRouter(prefix="/api")
 
@@ -13,6 +14,15 @@ router = APIRouter(prefix="/api")
 class AgenticRequest(BaseModel):
     text: str
     router_model: str | None = None
+
+    @field_validator("text")
+    @classmethod
+    def text_must_be_speakable(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("text must not be empty")
+        if len(v.strip()) > MAX_TEXT_CHARS:
+            raise ValueError(f"text must be <= {MAX_TEXT_CHARS} characters")
+        return v
 
 
 @router.post("/speak/agentic")
