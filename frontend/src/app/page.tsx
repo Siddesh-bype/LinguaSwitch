@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
-const API = "http://localhost:8000";
+const API =
+  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "http://localhost:8000";
 
 type Sentence = { id: number; text: string };
 type Segment = { lang: "hin" | "eng"; text: string; speaker?: string };
@@ -14,6 +15,17 @@ type PathState =
   | { status: "loading" }
   | { status: "ok"; data: NativeResult | BaselineResult; audioUrl: string }
   | { status: "error"; err: ApiError };
+type HistoryRow = {
+  ts: string;
+  text: string;
+  a_ttfa: number | null;
+  a_total: number | null;
+  b_ttfa: number | null;
+  b_total: number | null;
+};
+
+const HISTORY_KEY = "linguaswitch-history-v1";
+const HISTORY_LIMIT = 10;
 
 async function speak(path: "native" | "baseline", text: string): Promise<PathState> {
   try {
@@ -44,6 +56,17 @@ async function speak(path: "native" | "baseline", text: string): Promise<PathSta
   }
 }
 
+function loadHistory(): HistoryRow[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as HistoryRow[];
+    return Array.isArray(parsed) ? parsed.slice(0, HISTORY_LIMIT) : [];
+  } catch {
+    return [];
+  }
+}
+
 const card: CSSProperties = {
   flex: 1,
   minWidth: 300,
@@ -61,6 +84,12 @@ const btn: CSSProperties = {
   cursor: "pointer",
   color: "#fff",
 };
+const ghostBtn: CSSProperties = {
+  ...btn,
+  background: "var(--surface)",
+  color: "var(--ink)",
+  border: "1px solid var(--border)",
+};
 const th: CSSProperties = { textAlign: "left", padding: "8px 12px", color: "var(--ink-muted)" };
 const td: CSSProperties = { padding: "8px 12px", fontVariantNumeric: "tabular-nums" };
 const prose: CSSProperties = { color: "var(--ink-muted)", maxWidth: "65ch" };
@@ -74,13 +103,54 @@ const field: CSSProperties = {
   padding: 8,
 };
 
-function ResultCard({ title, state }: { title: string; state: PathState }) {
+function LatencyBars({ a, b }: { a: PathState; b: PathState }) {
+  if (a.status !== "ok" || b.status !== "ok") return null;
+  const max = Math.max(a.data.total_ms, b.data.total_ms, 1);
+  const delta = b.data.total_ms - a.data.total_ms;
+  const rows: Array<{ label: string; total: number; ttfa: number; color: string }> = [
+    { label: "A total", total: a.data.total_ms, ttfa: a.data.ttfa_ms, color: "var(--accent)" },
+    { label: "B total", total: b.data.total_ms, ttfa: b.data.ttfa_ms, color: "#7c3aed" },
+  ];
+  return (
+    <div style={{ ...card, marginTop: 16 }} aria-label="Latency comparison">
+      <h3 style={{ margin: "0 0 12px", fontSize: 16 }}>Latency head-to-head</h3>
+      {rows.map((r) => (
+        <div key={r.label} style={{ marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+            <span>{r.label}</span>
+            <span style={{ fontVariantNumeric: "tabular-nums" }}>
+              {r.total} ms (TTFA {r.ttfa} ms)
+            </span>
+          </div>
+          <div style={{ height: 10, borderRadius: 6, background: "var(--surface)", overflow: "hidden" }}>
+            <div
+              style={{
+                width: `${Math.max(2, Math.round((r.total / max) * 100))}%`,
+                height: "100%",
+                background: r.color,
+              }}
+            />
+          </div>
+        </div>
+      ))}
+      <p style={{ ...prose, fontSize: 13, margin: "8px 0 0" }} role="status">
+        {delta === 0
+          ? "Tie on total latency."
+          : delta > 0
+            ? `Native (A) is ${delta} ms faster end-to-end this run.`
+            : `Baseline (B) is ${-delta} ms faster end-to-end this run.`}
+      </p>
+    </div>
+  );
+}
+
+function ResultCard({ title, state, blindLabel }: { title: string; state: PathState; blindLabel?: string }) {
   const isBaseline = (s: PathState): s is { status: "ok"; data: BaselineResult; audioUrl: string } =>
     s.status === "ok" && "segments" in s.data;
 
   return (
     <div style={card}>
-      <h3 style={{ margin: "0 0 12px", fontSize: 18 }}>{title}</h3>
+      <h3 style={{ margin: "0 0 12px", fontSize: 18 }}>{blindLabel ?? title}</h3>
       {state.status === "loading" && <p role="status">Generating audio…</p>}
       {state.status === "error" && (
         <div role="alert" style={{ borderLeft: "4px solid var(--accent)", padding: 12, color: "var(--ink)" }}>
@@ -116,7 +186,7 @@ function ResultCard({ title, state }: { title: string; state: PathState }) {
               </tr>
             </tbody>
           </table>
-          {isBaseline(state) && (
+          {isBaseline(state) && !blindLabel && (
             <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8 }}>
               {state.data.segments.map((seg, i) => (
                 <span
@@ -151,6 +221,10 @@ export default function Home() {
   const [custom, setCustom] = useState("");
   const [a, setA] = useState<PathState>({ status: "idle" });
   const [b, setB] = useState<PathState>({ status: "idle" });
+  const [backendUp, setBackendUp] = useState<boolean | null>(null);
+  const [blind, setBlind] = useState(false);
+  const [blindMap, setBlindMap] = useState<{ x: "a" | "b" } | null>(null);
+  const [history, setHistory] = useState<HistoryRow[]>([]);
 
   useEffect(() => {
     fetch(`${API}/api/sentences`)
@@ -160,23 +234,89 @@ export default function Home() {
         if (d.sentences[0]) setSelected(String(d.sentences[0].id));
       })
       .catch(() => setSentences([]));
+    // Health probe is best-effort: older backends 404, offline backends throw.
+    fetch(`${API}/api/health`)
+      .then((r) => setBackendUp(r.ok))
+      .catch(() => setBackendUp(false));
+    setHistory(loadHistory());
   }, []);
 
   const text = custom.trim() || sentences.find((s) => String(s.id) === selected)?.text || "";
+  const busy = a.status === "loading" || b.status === "loading";
+
+  const pushHistory = useCallback((na: PathState, nb: PathState, t: string) => {
+    if (na.status !== "ok" || nb.status !== "ok") return;
+    const row: HistoryRow = {
+      ts: new Date().toISOString(),
+      text: t.slice(0, 80),
+      a_ttfa: na.data.ttfa_ms,
+      a_total: na.data.total_ms,
+      b_ttfa: nb.data.ttfa_ms,
+      b_total: nb.data.total_ms,
+    };
+    setHistory((prev) => {
+      const next = [row, ...prev].slice(0, HISTORY_LIMIT);
+      try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+      } catch {
+        /* private-mode storage: history just won't persist */
+      }
+      return next;
+    });
+  }, []);
 
   const run = (path: "native" | "baseline") => {
-    if (!text) return;
+    if (!text || busy) return;
+    if (blind && !blindMap) setBlindMap({ x: Math.random() < 0.5 ? "a" : "b" });
     const setter = path === "native" ? setA : setB;
     setter({ status: "loading" });
-    speak(path, text).then(setter);
+    speak(path, text).then((s) => {
+      setter(s);
+      const other = path === "native" ? b : a;
+      if (s.status === "ok" && other.status === "ok") pushHistory(path === "native" ? s : other, path === "native" ? other : s, text);
+    });
   };
+
+  const runBoth = () => {
+    if (!text || busy) return;
+    if (blind) setBlindMap({ x: Math.random() < 0.5 ? "a" : "b" });
+    setA({ status: "loading" });
+    setB({ status: "loading" });
+    Promise.all([speak("native", text), speak("baseline", text)]).then(([na, nb]) => {
+      setA(na);
+      setB(nb);
+      pushHistory(na, nb, text);
+    });
+  };
+
+  const winner = useMemo(() => {
+    if (a.status !== "ok" || b.status !== "ok") return null;
+    if (a.data.total_ms === b.data.total_ms) return "tie";
+    return a.data.total_ms < b.data.total_ms ? "a" : "b";
+  }, [a, b]);
+
+  const exportCsv = () => {
+    const lines = ["ts,text,a_ttfa_ms,a_total_ms,b_ttfa_ms,b_total_ms", ...history.map((h) => [h.ts, JSON.stringify(h.text), h.a_ttfa ?? "", h.a_total ?? "", h.b_ttfa ?? "", h.b_total ?? ""].join(","))];
+    const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "linguaswitch-history.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // In blind mode X/Y hides which clip is native until Reveal.
+  const titles = blind && blindMap ? { a: blindMap.x === "a" ? "Clip X" : "Clip Y", b: blindMap.x === "a" ? "Clip Y" : "Clip X" } : null;
 
   return (
     <main style={{ maxWidth: 1000, margin: "0 auto", padding: 24 }}>
       <h1 style={{ margin: "0 0 8px", fontSize: 28 }}>Hinglish TTS — A/B Comparison</h1>
-      <p style={prose}>Path A: native code-switching · Path B: segment &amp; route</p>
+      <p style={prose}>
+        Path A: native code-switching · Path B: segment &amp; route · Backend: {API} ·{" "}
+        {backendUp === null ? "checking backend…" : backendUp ? "backend reachable" : "backend unreachable — start `uvicorn backend.main:app --port 8000`"}
+      </p>
 
-      <div style={{ ...card, marginBottom: 16 }}>
+      <div style={{ ...card, marginBottom: 16, marginTop: 16 }}>
         {sentences.length === 0 ? (
           <p style={prose} role="status">
             <strong>No test sentences loaded. </strong>
@@ -203,26 +343,91 @@ export default function Home() {
             style={{ ...field, width: 320 }}
           />
         </label>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <button style={btn} onClick={() => run("native")} disabled={a.status === "loading" || !text}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <button style={btn} onClick={() => run("native")} disabled={busy || !text}>
             Path A — Native (Rime code-switching)
           </button>
-          <button style={btn} onClick={() => run("baseline")} disabled={b.status === "loading" || !text}>
+          <button style={btn} onClick={() => run("baseline")} disabled={busy || !text}>
             Path B — Segment &amp; Route (LLM router)
           </button>
+          <button style={{ ...btn, background: "#7c3aed" }} onClick={runBoth} disabled={busy || !text}>
+            Run both (fair race)
+          </button>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14 }}>
+            <input type="checkbox" checked={blind} onChange={(e) => { setBlind(e.target.checked); setBlindMap(null); }} style={{ width: 20, height: 20 }} />
+            Blind mode (hide A/B labels)
+          </label>
         </div>
+        {blind && (
+          <p style={{ ...prose, fontSize: 13, margin: "12px 0 0" }}>
+            Blind rating: listen to X and Y, decide which sounds more natural, then{" "}
+            <button style={{ ...ghostBtn, minHeight: 32, padding: "6px 12px" }} onClick={() => setBlind(false)}>
+              Reveal labels
+            </button>
+          </p>
+        )}
         </>
         )}
       </div>
 
-      <h2 style={{ margin: "0 0 12px", fontSize: 20 }}>Results</h2>
+      <h2 style={{ margin: "0 0 12px", fontSize: 20 }}>
+        Results{winner ? ` — ${winner === "tie" ? "tie" : winner === "a" ? "A (native) faster" : "B (baseline) faster"} this run` : ""}
+      </h2>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        <ResultCard title="Path A — Native" state={a} />
-        <ResultCard title="Path B — Segment &amp; Route" state={b} />
+        <ResultCard title="Path A — Native" state={a} blindLabel={titles?.a} />
+        <ResultCard title="Path B — Segment &amp; Route" state={b} blindLabel={titles?.b} />
+      </div>
+
+      <LatencyBars a={a} b={b} />
+
+      <div style={{ ...card, marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 16 }}>Run history (last {HISTORY_LIMIT}, this browser only)</h3>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={{ ...ghostBtn, minHeight: 36, padding: "8px 12px" }} onClick={exportCsv} disabled={history.length === 0}>
+              Export CSV
+            </button>
+            <button
+              style={{ ...ghostBtn, minHeight: 36, padding: "8px 12px" }}
+              onClick={() => { setHistory([]); try { localStorage.removeItem(HISTORY_KEY); } catch { /* ignore */ } }}
+              disabled={history.length === 0}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+        {history.length === 0 ? (
+          <p style={{ ...prose, margin: "12px 0 0" }}>Run both paths once to start a same-browser latency log.</p>
+        ) : (
+          <div style={{ overflowX: "auto", marginTop: 12 }}>
+            <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
+              <thead>
+                <tr>
+                  <th style={th}>Time</th>
+                  <th style={th}>Text</th>
+                  <th style={th}>A total</th>
+                  <th style={th}>B total</th>
+                  <th style={th}>Δ (B−A)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((h, i) => (
+                  <tr key={`${h.ts}-${i}`}>
+                    <td style={td}>{new Date(h.ts).toLocaleTimeString()}</td>
+                    <td style={{ ...td, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.text}</td>
+                    <td style={td}>{h.a_total ?? "—"} ms</td>
+                    <td style={td}>{h.b_total ?? "—"} ms</td>
+                    <td style={td}>{h.a_total != null && h.b_total != null ? `${h.b_total - h.a_total} ms` : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <footer style={{ marginTop: 24, ...prose, fontSize: 13 }}>
-        LinguaSwitch — Rime TTS track demo. Backend: {API}. Audio and timings regenerate locally via scripts/.
+        LinguaSwitch — Rime TTS track demo. Backend: {API} (override with NEXT_PUBLIC_API_BASE). Audio and timings regenerate locally via scripts/.
       </footer>
     </main>
   );
