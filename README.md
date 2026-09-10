@@ -24,6 +24,65 @@
 
 *Both SVGs are rendered from real measured output (`data/timings.jsonl`, 2026-09-10) — no mock numbers anywhere in this repo.*
 
+## The demo UI (real captures)
+
+Pick a sentence (or type your own Hinglish), generate each path, play both, compare latency side by side.
+
+| Before — idle | After — both paths generated |
+|---|---|
+| ![UI idle](assets/ui-idle.png) | ![UI with results](assets/ui-results.png) |
+| "Press a button to generate." | Live run: A = 1 call / 2209 ms total · B = 3 calls / 5316 ms total, per-language speakers shown as tags |
+
+*Captured with headless Chromium against the live backend + frontend. Numbers vary run to run with network; the direction (A faster, fewer calls) held on all 10 eval sentences.*
+
+## How it works (request flow)
+
+1. **Input** — preset sentence from `sentences.json` or free text. No STT: the research question lives on the output side.
+2. **Path A (native)** — `rime.speak(text, "hin")`: one `POST /v1/rime-tts` (`modelId: coda`, voice `nadi`). Rime code-switches internally.
+3. **Path B (baseline)** — `segmenter` (Groq `gpt-oss-20b`, few-shot JSON) splits the text into `hin`/`eng` runs → one Rime call per run, swapping voice per language (`nadi`/`astra` — a Rime voice serves exactly one language, so the voice swap is structural) → stdlib-`wave` concat. Rime streams placeholder WAV headers (`nframes=INT32_MAX`); `audio.py` rebuilds clean headers from actual bytes.
+4. **Compare** — TTFA/total/API-calls per path, audio players side by side, segment tags showing router decisions.
+
+## Repo map
+
+```
+backend/        FastAPI: rime.py (sole Rime call site), segmenter.py (Groq router),
+                audio.py (WAV concat), routes.py (native/baseline/sentences),
+                agent_graph.py (LangGraph agent, both paths), agent_routes.py,
+                streaming.py (WS /ws3 bridge), config.py (env, single source of truth)
+frontend/       Next.js A/B UI (this page's screenshots)
+scripts/        smoke_test.py (Day 0 gate) · run_eval.py (A/B + timings.jsonl)
+                make_rater_packet.py (blind X/Y packets) · bonus_segmentation.py
+                sbds.py (objective seam metric, librosa)
+sentences.json  10-sentence test set (customer-support/everyday, 1–3 switches each)
+assets/         architecture.svg · terminal.svg · ui-idle.png · ui-results.png
+RIME_EVIDENCE.md  falsifiable claim + acceptance test + measured tables
+```
+
+## Verification log (this machine)
+
+| Check | Result |
+|---|---|
+| `smoke_test.py` (Rime eng/hin/mixed) | 3/3 valid WAV, TTFA ~1.1–1.4 s |
+| Groq router probe (`gpt-oss-20b`) | correct `hin`/`eng` split, ~1.5 s |
+| `run_eval.py` full 10-sentence A/B | 10/10 both paths (after fixing placeholder-header concat bug) |
+| `audio.py` self-check | pass (incl. placeholder-header regression case) |
+| `tsc --noEmit` (frontend) | pass |
+| Live app import, 4 routes | pass |
+| `sbds.py` without librosa | clean "not installed" message, exit 1 |
+
+## Test sentence set
+
+Mix of customer-support and everyday phrasing, each with ≥1 mid-sentence switch; #10 is the 3-switch stress case. Full texts in `sentences.json`; `ground_truth` hand-labels (segmentation answer key) are filled by the team before running `bonus_segmentation.py`.
+
+## Roadmap to submission
+
+- [x] Provider access + corrected API shapes (Coda, `/v1/rime-tts`, current Groq IDs)
+- [x] Both paths + eval harness + measured latency (A wins 10/10)
+- [ ] Hand-label `ground_truth` (native-speaker task)
+- [ ] Blind ratings from 3–5 Hindi/English speakers (`make_rater_packet.py` builds the packet)
+- [ ] `pip install librosa` → SBDS seam numbers → `RIME_EVIDENCE.md`
+- [ ] Record 4–5 min demo (script outline in the original plan: problem → native → baseline → stress → numbers → provider disclosure)
+
 ## Quickstart (3 steps)
 
 ```bash
