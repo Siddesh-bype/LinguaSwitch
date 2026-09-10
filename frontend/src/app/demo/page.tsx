@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 const API =
   process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "http://localhost:8000";
@@ -36,6 +36,21 @@ type VoteTally = {
   totals: VoteTotals;
   per_question: Record<string, VoteTotals>;
 };
+
+type StreamState =
+  | { status: "idle" }
+  | { status: "streaming"; chunks: number; clientTtfaMs: number | null }
+  | {
+      status: "ok";
+      url: string;
+      ttfaMs: number | null;
+      totalMs: number | null;
+      chunks: number;
+      words: number;
+      bytes: number;
+      decodeError: boolean;
+    }
+  | { status: "error"; err: string };
 
 async function fetchTally(): Promise<VoteTally | null> {
   try {
@@ -318,6 +333,8 @@ export default function Home() {
   const [tally, setTally] = useState<VoteTally | null>(null);
   const [voting, setVoting] = useState(false);
   const [voteMsg, setVoteMsg] = useState<string | null>(null);
+  const [stream, setStream] = useState<StreamState>({ status: "idle" });
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     fetch(`${API}/api/sentences`)
@@ -338,6 +355,17 @@ export default function Home() {
       /* private mode: rater name just won't persist */
     }
     fetchTally().then(setTally);
+  }, []);
+
+  // Close any live stream when leaving the page.
+  useEffect(() => {
+    return () => {
+      try {
+        wsRef.current?.close();
+      } catch {
+        /* ignore */
+      }
+    };
   }, []);
 
   const text = custom.trim() || sentences.find((s) => String(s.id) === selected)?.text || "";
@@ -431,6 +459,93 @@ export default function Home() {
     if (a.data.total_ms === b.data.total_ms) return "tie";
     return a.data.total_ms < b.data.total_ms ? "a" : "b";
   }, [a, b]);
+
+  // WebSocket streaming preview against /api/speak/stream (the
+  // server-side Rime ws3 bridge). Frames in: audio (b64 chunks),
+  // timestamps (words), done (stats), error. Chunks assemble into one
+  // playable clip; if the browser cannot decode the streamed bytes, the
+  // player reports it and the REST paths remain the reference audio.
+  const startStream = () => {
+    if (!text || stream.status === "streaming") return;
+    const url = API.replace(/^http/, "ws") + "/api/speak/stream";
+    const parts: Uint8Array<ArrayBuffer>[] = [];
+    const t0 = performance.now();
+    let chunks = 0;
+    let words = 0;
+    let firstChunkAt = 0;
+    let finished = false;
+    setStream({ status: "streaming", chunks: 0, clientTtfaMs: null });
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(url);
+    } catch (e) {
+      setStream({ status: "error", err: `Could not open stream: ${String(e)}` });
+      return;
+    }
+    wsRef.current = ws;
+    ws.onopen = () => ws.send(JSON.stringify({ text }));
+    ws.onmessage = (ev: MessageEvent) => {
+      let frame: { type?: string; b64?: string; words?: unknown; ttfa_ms?: number; total_ms?: number; chunks?: number; message?: string };
+      try {
+        frame = JSON.parse(String(ev.data));
+      } catch {
+        return;
+      }
+      if (frame.type === "audio" && frame.b64) {
+        const bin = atob(frame.b64);
+        const chunk = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) chunk[i] = bin.charCodeAt(i);
+        parts.push(chunk);
+        chunks += 1;
+        if (!firstChunkAt) firstChunkAt = performance.now();
+        setStream({ status: "streaming", chunks, clientTtfaMs: Math.round(firstChunkAt - t0) });
+      } else if (frame.type === "timestamps") {
+        if (Array.isArray(frame.words)) words = frame.words.length;
+      } else if (frame.type === "done") {
+        finished = true;
+        const bytes = parts.reduce((n, p) => n + p.length, 0);
+        const blob = new Blob(parts, { type: "audio/wav" });
+        setStream({
+          status: "ok",
+          url: URL.createObjectURL(blob),
+          ttfaMs: frame.ttfa_ms ?? null,
+          totalMs: frame.total_ms ?? null,
+          chunks: frame.chunks ?? chunks,
+          words,
+          bytes,
+          decodeError: false,
+        });
+        ws.close();
+      } else if (frame.type === "error") {
+        finished = true;
+        setStream({ status: "error", err: String(frame.message ?? "stream error") });
+        ws.close();
+      }
+    };
+    ws.onerror = () => {
+      if (!finished) {
+        finished = true;
+        setStream({ status: "error", err: "WebSocket failed (backend unreachable or no stream route)." });
+      }
+    };
+    ws.onclose = () => {
+      wsRef.current = null;
+      if (!finished) {
+        finished = true;
+        setStream({ status: "error", err: "Connection closed before done." });
+      }
+    };
+  };
+
+  const stopStream = () => {
+    try {
+      wsRef.current?.close();
+    } catch {
+      /* ignore */
+    }
+    wsRef.current = null;
+    setStream({ status: "idle" });
+  };
 
   const exportCsv = () => {
     const lines = ["ts,text,a_ttfa_ms,a_total_ms,b_ttfa_ms,b_total_ms", ...history.map((h) => [h.ts, JSON.stringify(h.text), h.a_ttfa ?? "", h.a_total ?? "", h.b_ttfa ?? "", h.b_total ?? ""].join(","))];
@@ -666,6 +781,57 @@ export default function Home() {
                 </span>
               ))}
             </div>
+          </div>
+        )}
+      </div>
+
+      <h2 style={{ margin: "24px 0 12px", fontSize: 20 }}>Streaming preview (WebSocket ws3 bridge)</h2>
+      <div style={{ ...card, marginBottom: 16 }}>
+        <p style={{ ...prose, fontSize: 13 }}>
+          Progressive synthesis of the same text: chunk count and client-measured time-to-first-chunk update live, then the
+          assembled clip plays with server stats and word-timestamp counts. REST paths above stay the reference audio.
+        </p>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 12 }}>
+          <button style={btn} onClick={startStream} disabled={!text || stream.status === "streaming"}>
+            Stream
+          </button>
+          <button style={ghostBtn} onClick={stopStream} disabled={stream.status !== "streaming"}>
+            Stop
+          </button>
+        </div>
+        {stream.status === "streaming" && (
+          <p style={{ ...prose, fontSize: 13 }} role="status">
+            Streaming... {stream.chunks} chunks
+            {stream.clientTtfaMs !== null ? `, first chunk after ${stream.clientTtfaMs} ms (this browser)` : ""}
+          </p>
+        )}
+        {stream.status === "error" && (
+          <div role="alert" style={{ borderLeft: "4px solid var(--accent)", padding: 12, color: "var(--ink)", marginTop: 12 }}>
+            <strong>Stream failed: </strong>
+            <span style={{ maxWidth: "65ch", display: "inline-block", overflowWrap: "anywhere" }}>{stream.err}</span>
+          </div>
+        )}
+        {stream.status === "ok" && (
+          <div className="fade-in" key={stream.url} style={{ marginTop: 12 }}>
+            <audio
+              controls
+              style={{ width: "100%" }}
+              src={stream.url}
+              onError={() =>
+                setStream((s) => (s.status === "ok" ? { ...s, decodeError: true } : s))
+              }
+            />
+            <p style={{ ...prose, fontSize: 13 }} role="status">
+              {stream.chunks} chunks, {stream.bytes} bytes
+              {stream.ttfaMs !== null ? `, server TTFA ${stream.ttfaMs} ms` : ""}
+              {stream.totalMs !== null ? `, server total ${stream.totalMs} ms` : ""}, {stream.words} timestamped words.
+            </p>
+            {stream.decodeError && (
+              <p style={{ ...prose, fontSize: 13 }} role="alert">
+                This browser could not decode the streamed bytes (chunk container varies by provider) - use the REST
+                players above for reference audio. Stats and timestamps above still stand.
+              </p>
+            )}
           </div>
         )}
       </div>
