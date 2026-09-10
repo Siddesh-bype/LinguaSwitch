@@ -3,52 +3,150 @@
     {
       "id": 1,
       "text": "Mera order kahan hai, can you check the status please?",
-      "ground_truth": null
+      "ground_truth": [
+        {
+          "lang": "hin",
+          "text": "Mera order kahan hai, "
+        },
+        {
+          "lang": "eng",
+          "text": "can you check the status please?"
+        }
+      ]
     },
     {
       "id": 2,
       "text": "Sir, ye product damaged hai — I want a return.",
-      "ground_truth": null
+      "ground_truth": [
+        {
+          "lang": "eng",
+          "text": "Sir, "
+        },
+        {
+          "lang": "hin",
+          "text": "ye product damaged hai — "
+        },
+        {
+          "lang": "eng",
+          "text": "I want a return."
+        }
+      ]
     },
     {
       "id": 3,
       "text": "Haan bhai, wo delivery date confirm kar do.",
-      "ground_truth": null
+      "ground_truth": [
+        {
+          "lang": "hin",
+          "text": "Haan bhai, wo delivery date confirm kar do."
+        }
+      ]
     },
     {
       "id": 4,
       "text": "Can you please batao ki refund kab tak aayega?",
-      "ground_truth": null
+      "ground_truth": [
+        {
+          "lang": "eng",
+          "text": "Can you please "
+        },
+        {
+          "lang": "hin",
+          "text": "batao ki refund kab tak aayega?"
+        }
+      ]
     },
     {
       "id": 5,
       "text": "I need this by Friday, warna cancel kar dena padega.",
-      "ground_truth": null
+      "ground_truth": [
+        {
+          "lang": "eng",
+          "text": "I need this by Friday, "
+        },
+        {
+          "lang": "hin",
+          "text": "warna cancel kar dena padega."
+        }
+      ]
     },
     {
       "id": 6,
       "text": "Class ka assignment submit karna hai by tomorrow, right?",
-      "ground_truth": null
+      "ground_truth": [
+        {
+          "lang": "hin",
+          "text": "Class ka assignment submit karna hai "
+        },
+        {
+          "lang": "eng",
+          "text": "by tomorrow, right?"
+        }
+      ]
     },
     {
       "id": 7,
       "text": "Excuse me, mera reservation confirm hua ya nahi?",
-      "ground_truth": null
+      "ground_truth": [
+        {
+          "lang": "eng",
+          "text": "Excuse me, "
+        },
+        {
+          "lang": "hin",
+          "text": "mera reservation confirm hua ya nahi?"
+        }
+      ]
     },
     {
       "id": 8,
       "text": "Wait, actually — kal tak deliver ho jayega na? Just confirming.",
-      "ground_truth": null
+      "ground_truth": [
+        {
+          "lang": "eng",
+          "text": "Wait, actually — "
+        },
+        {
+          "lang": "hin",
+          "text": "kal tak deliver ho jayega na? "
+        },
+        {
+          "lang": "eng",
+          "text": "Just confirming."
+        }
+      ]
     },
     {
       "id": 9,
       "text": "Thank you, bahut help ho gayi aapki.",
-      "ground_truth": null
+      "ground_truth": [
+        {
+          "lang": "eng",
+          "text": "Thank you, "
+        },
+        {
+          "lang": "hin",
+          "text": "bahut help ho gayi aapki."
+        }
+      ]
     },
     {
       "id": 10,
       "text": "Haan bhai, wo order — actually can you check — kal tak deliver ho jayega na?",
-      "ground_truth": null
+      "ground_truth": [
+        {
+          "lang": "hin",
+          "text": "Haan bhai, wo order — "
+        },
+        {
+          "lang": "eng",
+          "text": "actually can you check — "
+        },
+        {
+          "lang": "hin",
+          "text": "kal tak deliver ho jayega na?"
+        }
+      ]
     }
   ]
 }

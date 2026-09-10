@@ -87,9 +87,12 @@ test holds: Path A mean total ≤ Path B mean total on all 10 sentences.
 
 | model | correct (of N) | word-level accuracy |
 |---|---|---|
-| Groq openai/gpt-oss-20b (router) |  |  |
-| Groq openai/gpt-oss-120b (second, small-vs-large) |  |  |
-| OpenRouter (bonus) |  |  |
+| Groq openai/gpt-oss-20b (router) | 9/10 | 100.0% |
+| Groq openai/gpt-oss-120b (second, small-vs-large) | 9/10 | 99.4% |
+| OpenRouter (bonus) | not run (no key — optional) | — |
+
+Bonus measured 2026-09-10 against hand-labeled ground truth (`sentences.json`).
+Small-sample, exploratory — a sanity signal, not a benchmark.
 
 ## Limitations
 
