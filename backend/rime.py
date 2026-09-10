@@ -18,7 +18,14 @@ def speak(text: str, lang: str | None = None, speaker: str | None = None) -> dic
 
     Returns {"audio": bytes, "ttfa_ms": int, "total_ms": int}
     (ttfa = time to first byte of the audio response body).
+
+    With MOCK_TTS=1 (dev/CI without keys) returns deterministic synthetic
+    audio instead of calling the network — never real eval data.
     """
+    if config.MOCK_TTS:
+        from .mock_tts import mock_speak
+
+        return mock_speak(text)
     if not config.RIME_API_KEY:
         raise RuntimeError(
             "RIME_API_KEY is not set — copy .env.example to .env and fill it in."

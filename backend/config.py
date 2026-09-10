@@ -41,3 +41,8 @@ SPEAKER_MAP = {"hin": RIME_SPEAKER_HIN, "eng": RIME_SPEAKER_ENG}
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CLIPS_DIR = DATA_DIR / "clips"
+
+# Offline mode for dev/CI without provider keys (see backend/mock_tts.py).
+# Mock audio is synthetic and must never be written to data/timings.jsonl.
+MOCK_TTS = os.getenv("MOCK_TTS", "0") == "1"
+MOCK_SEGMENTER = os.getenv("MOCK_SEGMENTER", "0") == "1"

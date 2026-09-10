@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import config, streaming
 from .agent_routes import router as agent_router
+from .metrics_routes import router as metrics_router
 from .routes import router
 
 app = FastAPI(title="LinguaSwitch TTS backend")
@@ -18,6 +19,7 @@ app.add_middleware(
 
 app.include_router(router)
 app.include_router(agent_router)
+app.include_router(metrics_router)
 app.include_router(streaming.ws_router)
 
 
