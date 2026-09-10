@@ -37,6 +37,30 @@ type VoteTally = {
   per_question: Record<string, VoteTotals>;
 };
 
+type SentenceSet = { name: string; count: number };
+
+async function fetchSets(): Promise<SentenceSet[]> {
+  try {
+    const res = await fetch(`${API}/api/sentences/sets`);
+    if (!res.ok) return [];
+    return ((await res.json()) as { sets: SentenceSet[] }).sets;
+  } catch {
+    return [];
+  }
+}
+
+async function fetchSetSentences(name: string): Promise<Sentence[] | null> {
+  try {
+    const url = name === "eval" ? `${API}/api/sentences` : `${API}/api/sentences/sets/${name}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { sentences: Sentence[] };
+    return data.sentences;
+  } catch {
+    return null;
+  }
+}
+
 type StreamState =
   | { status: "idle" }
   | { status: "streaming"; chunks: number; clientTtfaMs: number | null }
@@ -333,6 +357,11 @@ export default function Home() {
   const [tally, setTally] = useState<VoteTally | null>(null);
   const [voting, setVoting] = useState(false);
   const [voteMsg, setVoteMsg] = useState<string | null>(null);
+  const [setName, setSetName] = useState("eval");
+  const [sets, setSets] = useState<SentenceSet[]>([]);
+  const [newSetName, setNewSetName] = useState("");
+  const [newSetLines, setNewSetLines] = useState("");
+  const [setMsg, setSetMsg] = useState<string | null>(null);
   const [stream, setStream] = useState<StreamState>({ status: "idle" });
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -355,6 +384,7 @@ export default function Home() {
       /* private mode: rater name just won't persist */
     }
     fetchTally().then(setTally);
+    fetchSets().then(setSets);
   }, []);
 
   // Close any live stream when leaving the page.
@@ -425,8 +455,15 @@ export default function Home() {
 
   // Live straw-poll votes (server tally). The official record stays the
   // rater packet (responses.csv); this is the casual demo counterpart.
-  // Question key tracks the current sentence so votes group per sentence.
-  const voteQuestion = custom.trim() ? "demo-custom" : selected ? `demo-s${selected}` : "";
+  // Question key tracks the current set + sentence so votes group correctly
+  // (eval-set keys keep their existing demo-s{id} shape).
+  const voteQuestion = custom.trim()
+    ? `demo-${setName}-custom`
+    : selected
+      ? setName === "eval"
+        ? `demo-s${selected}`
+        : `demo-${setName}-s${selected}`
+      : "";
   const canVote = blind && a.status === "ok" && b.status === "ok" && !voting && voteQuestion !== "";
 
   const vote = (choice: "X" | "Y" | "same") => {
@@ -547,6 +584,61 @@ export default function Home() {
     setStream({ status: "idle" });
   };
 
+  // Custom sentence sets. The pinned eval set ("eval") always comes from
+  // sentences.json; customs come from /api/sentences/sets (data/sets/).
+  const loadSet = (name: string) => {
+    fetchSetSentences(name).then((list) => {
+      if (!list) {
+        setSetMsg(`Could not load set "${name}" (backend without sets API, or set deleted).`);
+        return;
+      }
+      setSetMsg(null);
+      setSentences(list);
+      setSetName(name);
+      if (list[0]) setSelected(String(list[0].id));
+    });
+  };
+
+  const saveSet = () => {
+    const name = newSetName.trim().toLowerCase();
+    const lines = newSetLines.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+    if (!name || lines.length === 0) {
+      setSetMsg("Name the set (lowercase slug) and add one sentence per line.");
+      return;
+    }
+    fetch(`${API}/api/sentences/sets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, sentences: lines }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const err = (await res.json().catch(() => null)) as { error?: string } | null;
+          setSetMsg(`Save failed: ${err?.error ?? `HTTP ${res.status}`}`);
+          return;
+        }
+        setNewSetName("");
+        setNewSetLines("");
+        fetchSets().then(setSets);
+        loadSet(name);
+      })
+      .catch((e) => setSetMsg(`Save failed: ${String(e)}`));
+  };
+
+  const removeSet = () => {
+    if (setName === "eval") return;
+    fetch(`${API}/api/sentences/sets/${setName}`, { method: "DELETE" })
+      .then((res) => {
+        if (!res.ok) {
+          setSetMsg(`Delete failed: HTTP ${res.status}`);
+          return;
+        }
+        fetchSets().then(setSets);
+        loadSet("eval");
+      })
+      .catch((e) => setSetMsg(`Delete failed: ${String(e)}`));
+  };
+
   const exportCsv = () => {
     const lines = ["ts,text,a_ttfa_ms,a_total_ms,b_ttfa_ms,b_total_ms", ...history.map((h) => [h.ts, JSON.stringify(h.text), h.a_ttfa ?? "", h.a_total ?? "", h.b_ttfa ?? "", h.b_total ?? ""].join(","))];
     const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
@@ -581,6 +673,56 @@ export default function Home() {
           </p>
         ) : (
         <>
+        <label style={{ display: "block", marginBottom: 8 }}>
+          Sentence set
+          <select value={setName} onChange={(e) => loadSet(e.target.value)} style={field}>
+            <option value="eval">Eval set (pinned, 10 sentences)</option>
+            {sets.map((s) => (
+              <option key={s.name} value={s.name}>
+                {s.name} ({s.count})
+              </option>
+            ))}
+          </select>
+        </label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+          <button style={{ ...ghostBtn, minHeight: 36, padding: "8px 12px" }} onClick={() => fetchSets().then(setSets)}>
+            Refresh sets
+          </button>
+          {setName !== "eval" && (
+            <button style={{ ...ghostBtn, minHeight: 36, padding: "8px 12px" }} onClick={removeSet}>
+              Delete set &quot;{setName}&quot;
+            </button>
+          )}
+        </div>
+        {setMsg && (
+          <p style={{ ...prose, fontSize: 13 }} role="status">{setMsg}</p>
+        )}
+        <details style={{ marginBottom: 8 }}>
+          <summary style={{ cursor: "pointer", fontSize: 14 }}>New custom set (one sentence per line)</summary>
+          <div style={{ marginTop: 8 }}>
+            <label style={{ display: "block", marginBottom: 8, fontSize: 14 }}>
+              Set name (lowercase slug)
+              <input
+                value={newSetName}
+                onChange={(e) => setNewSetName(e.target.value)}
+                placeholder="support-extra"
+                style={{ ...field, width: 200 }}
+              />
+            </label>
+            <textarea
+              value={newSetLines}
+              onChange={(e) => setNewSetLines(e.target.value)}
+              placeholder={"Mera order kahan hai, can you check?\nRefund kab tak aayega?"}
+              rows={3}
+              style={{ ...field, marginLeft: 0, width: "100%", maxWidth: 560, fontFamily: "inherit" }}
+            />
+            <div style={{ marginTop: 8 }}>
+              <button style={{ ...ghostBtn, minHeight: 36, padding: "8px 12px" }} onClick={saveSet}>
+                Save set
+              </button>
+            </div>
+          </div>
+        </details>
         <label style={{ display: "block", marginBottom: 8 }}>
           Test sentence
           <select value={selected} onChange={(e) => setSelected(e.target.value)} style={field}>
