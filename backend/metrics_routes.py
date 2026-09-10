@@ -13,7 +13,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from . import seam
+from . import observability, seam
 
 router = APIRouter(prefix="/api/metrics")
 
@@ -62,3 +62,13 @@ def seam_compare(req: SeamCompareRequest):
         "delta_b_minus_a": round(b["seam_score"] - a["seam_score"], 3),
         "note": "positive delta = B shows more long-gap seam evidence than A (stdlib proxy; see scripts/sbds.py for the full metric)",
     }
+
+
+@router.get("/requests")
+def request_stats():
+    """Per-route request/error/latency counters + uptime (ops visibility).
+
+    In-memory and per-process (resets on restart) — for live debugging,
+    not eval data. Populated by ObservabilityMiddleware on every request.
+    """
+    return observability.snapshot()

@@ -1,4 +1,6 @@
 """FastAPI app for the LinguaSwitch native-vs-baseline TTS demo."""
+import logging
+
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,11 +8,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import config, streaming
 from .agent_routes import router as agent_router
 from .metrics_routes import router as metrics_router
+from .observability import ObservabilityMiddleware
 from .ratings_routes import router as ratings_router
 from .routes import router
 
+logging.basicConfig(level=getattr(logging, config.LOG_LEVEL.upper(), logging.INFO))
+
 app = FastAPI(title="LinguaSwitch TTS backend")
 
+app.add_middleware(ObservabilityMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
