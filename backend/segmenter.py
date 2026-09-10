@@ -1,4 +1,4 @@
-"""Language segmentation via Groq (Mixtral) — the "Path B" router.
+"""Language segmentation via Groq — the "Path B" router (model from config).
 
 Splits a Hinglish sentence into ordered language-tagged runs. Run-level, not
 word-by-word: ambiguous loanwords ("product", "damaged") stay inside the Hindi
