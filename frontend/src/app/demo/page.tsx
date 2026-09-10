@@ -468,7 +468,7 @@ export default function Home() {
   const startStream = () => {
     if (!text || stream.status === "streaming") return;
     const url = API.replace(/^http/, "ws") + "/api/speak/stream";
-    const parts: Uint8Array[] = [];
+    const parts: Uint8Array<ArrayBuffer>[] = [];
     const t0 = performance.now();
     let chunks = 0;
     let words = 0;
@@ -492,7 +492,10 @@ export default function Home() {
         return;
       }
       if (frame.type === "audio" && frame.b64) {
-        parts.push(Uint8Array.from(atob(frame.b64), (c) => c.charCodeAt(0)));
+        const bin = atob(frame.b64);
+        const chunk = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) chunk[i] = bin.charCodeAt(i);
+        parts.push(chunk);
         chunks += 1;
         if (!firstChunkAt) firstChunkAt = performance.now();
         setStream({ status: "streaming", chunks, clientTtfaMs: Math.round(firstChunkAt - t0) });
