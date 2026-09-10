@@ -28,6 +28,56 @@ type HistoryRow = {
 const HISTORY_KEY = "linguaswitch-history-v1";
 const HISTORY_LIMIT = 10;
 
+type AgenticMetricsA = { ttfa_ms: number; total_ms: number; api_calls: number };
+type AgenticMetricsB = AgenticMetricsA & {
+  segment_ms: number;
+  router: string;
+  framework: string;
+  framework_overhead_note: string;
+};
+type AgenticSegment = { lang: "hin" | "eng"; text: string; speaker: string; ttfa_ms: number; total_ms: number };
+type AgenticResult = {
+  audio_a_b64: string;
+  audio_b_b64: string;
+  metrics_a: AgenticMetricsA;
+  metrics_b: AgenticMetricsB;
+  segments: AgenticSegment[];
+};
+type AgenticState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ok"; data: AgenticResult; urlA: string; urlB: string }
+  | { status: "error"; err: ApiError };
+
+function wavUrl(b64: string): string {
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+}
+
+async function runAgentic(text: string): Promise<AgenticState> {
+  try {
+    const res = await fetch(`${API}/api/speak/agentic`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => null)) as ApiError | null;
+      return {
+        status: "error",
+        err: err ?? { error: `HTTP ${res.status}`, provider: "unknown", fallback: "none" },
+      };
+    }
+    const data = (await res.json()) as AgenticResult;
+    return { status: "ok", data, urlA: wavUrl(data.audio_a_b64), urlB: wavUrl(data.audio_b_b64) };
+  } catch (e) {
+    return {
+      status: "error",
+      err: { error: String(e), provider: "network", fallback: "none" },
+    };
+  }
+}
+
 async function speak(path: "native" | "baseline", text: string): Promise<PathState> {
   try {
     const res = await fetch(`${API}/api/speak/${path}`, {
@@ -227,6 +277,7 @@ export default function Home() {
   const [blind, setBlind] = useState(false);
   const [blindMap, setBlindMap] = useState<{ x: "a" | "b" } | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [agentic, setAgentic] = useState<AgenticState>({ status: "idle" });
 
   useEffect(() => {
     fetch(`${API}/api/sentences`)
@@ -245,6 +296,7 @@ export default function Home() {
 
   const text = custom.trim() || sentences.find((s) => String(s.id) === selected)?.text || "";
   const busy = a.status === "loading" || b.status === "loading";
+  const agenticBusy = agentic.status === "loading";
 
   const pushHistory = useCallback((na: PathState, nb: PathState, t: string) => {
     if (na.status !== "ok" || nb.status !== "ok") return;
@@ -289,6 +341,12 @@ export default function Home() {
       setB(nb);
       pushHistory(na, nb, text);
     });
+  };
+
+  const runAgenticBoth = () => {
+    if (!text || busy || agenticBusy) return;
+    setAgentic({ status: "loading" });
+    runAgentic(text).then(setAgentic);
   };
 
   const winner = useMemo(() => {
@@ -360,6 +418,9 @@ export default function Home() {
           <button style={btn} onClick={runBoth} disabled={busy || !text}>
             Run both (fair race)
           </button>
+          <button style={{ ...btn, background: "#7c3aed" }} onClick={runAgenticBoth} disabled={busy || agenticBusy || !text}>
+            Run agentic (LangGraph)
+          </button>
           <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14 }}>
             <input type="checkbox" checked={blind} onChange={(e) => { setBlind(e.target.checked); setBlindMap(null); }} style={{ width: 20, height: 20 }} />
             Blind mode (hide A/B labels)
@@ -429,6 +490,64 @@ export default function Home() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      <h2 style={{ margin: "24px 0 12px", fontSize: 20 }}>Agentic run (LangGraph, both paths in one call)</h2>
+      <div style={{ ...card, marginBottom: 16 }}>
+        {agentic.status === "idle" && (
+          <p style={{ ...prose }}>Runs the LangGraph voice agent on the same text: structured-output router, native Path A, routed Path B, metrics.</p>
+        )}
+        {agentic.status === "loading" && <p role="status">Running agent (router + both TTS paths)...</p>}
+        {agentic.status === "error" && (
+          <div role="alert" style={{ borderLeft: "4px solid var(--accent)", padding: 12, color: "var(--ink)" }}>
+            <strong>Agent run failed: </strong>
+            <span style={{ maxWidth: "65ch", display: "inline-block", overflowWrap: "anywhere" }}>{agentic.err.error}</span>
+            <p style={{ margin: "8px 0 0", maxWidth: "65ch" }}>
+              Provider: {agentic.err.provider} (fallback: {agentic.err.fallback})
+            </p>
+          </div>
+        )}
+        {agentic.status === "ok" && (
+          <div className="fade-in" key={agentic.urlA}>
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 260 }}>
+                <h3 style={{ margin: "0 0 8px", fontSize: 16 }}>Agent Path A - native</h3>
+                <audio controls style={{ width: "100%" }} src={agentic.urlA} />
+                <p style={{ ...prose, fontSize: 13 }}>
+                  TTFA {agentic.data.metrics_a.ttfa_ms} ms - total {agentic.data.metrics_a.total_ms} ms - {agentic.data.metrics_a.api_calls} call
+                </p>
+              </div>
+              <div style={{ flex: 1, minWidth: 260 }}>
+                <h3 style={{ margin: "0 0 8px", fontSize: 16 }}>Agent Path B - routed</h3>
+                <audio controls style={{ width: "100%" }} src={agentic.urlB} />
+                <p style={{ ...prose, fontSize: 13 }}>
+                  TTFA {agentic.data.metrics_b.ttfa_ms} ms - total {agentic.data.metrics_b.total_ms} ms - {agentic.data.metrics_b.api_calls} calls
+                  (router {agentic.data.metrics_b.segment_ms} ms via {agentic.data.metrics_b.router}, {agentic.data.metrics_b.framework})
+                </p>
+              </div>
+            </div>
+            <p style={{ ...prose, fontSize: 13 }}>{agentic.data.metrics_b.framework_overhead_note}</p>
+            <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {agentic.data.segments.map((seg, i) => (
+                <span
+                  key={i}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    background: "var(--surface)",
+                    color: "var(--ink)",
+                    border: "1px solid var(--border)",
+                    maxWidth: "100%",
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  <strong>{seg.lang}</strong> via {seg.speaker}: {seg.text}
+                </span>
+              ))}
+            </div>
           </div>
         )}
       </div>
