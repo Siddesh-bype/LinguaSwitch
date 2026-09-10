@@ -13,6 +13,16 @@ from backend.main import app
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def fresh_cache(monkeypatch):
+    # Isolate from the process-wide API cache (backend/routes.py) so
+    # provider-call assertions see live calls, not another test's hits.
+    from backend import cache as cache_mod
+    from backend import routes as routes_mod
+
+    monkeypatch.setattr(routes_mod, "CACHE", cache_mod.TTLCache(ttl_s=300))
+
+
 def _wav(seed: int = 0):
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:

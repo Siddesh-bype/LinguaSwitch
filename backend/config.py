@@ -52,3 +52,9 @@ MOCK_SEGMENTER = os.getenv("MOCK_SEGMENTER", "0") == "1"
 # globally for a session via BASELINE_PARALLEL=1.
 BASELINE_PARALLEL_DEFAULT = os.getenv("BASELINE_PARALLEL", "0") == "1"
 BASELINE_MAX_WORKERS = int(os.getenv("BASELINE_MAX_WORKERS", "4") or 4)
+
+# API response cache (see backend/cache.py). On by default to avoid
+# rebilling providers on demo/rater replays; run_eval.py bypasses it so
+# eval timings always reflect live calls. Set CACHE_TTL_S=0 to disable.
+CACHE_TTL_S = int(os.getenv("CACHE_TTL_S", "300") or 300)
+CACHE_MAX_ENTRIES = int(os.getenv("CACHE_MAX_ENTRIES", "200") or 200)
