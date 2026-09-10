@@ -41,8 +41,21 @@ SPEAKER_MAP = {"hin": RIME_SPEAKER_HIN, "eng": RIME_SPEAKER_ENG}
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CLIPS_DIR = DATA_DIR / "clips"
+RATINGS_PATH = DATA_DIR / "ratings.json"
 
 # Offline mode for dev/CI without provider keys (see backend/mock_tts.py).
 # Mock audio is synthetic and must never be written to data/timings.jsonl.
 MOCK_TTS = os.getenv("MOCK_TTS", "0") == "1"
 MOCK_SEGMENTER = os.getenv("MOCK_SEGMENTER", "0") == "1"
+
+# Path B fan-out (see backend/parallel.py). Default sequential preserves
+# the published eval numbers; opt in per-request (parallel:true) or
+# globally for a session via BASELINE_PARALLEL=1.
+BASELINE_PARALLEL_DEFAULT = os.getenv("BASELINE_PARALLEL", "0") == "1"
+BASELINE_MAX_WORKERS = int(os.getenv("BASELINE_MAX_WORKERS", "4") or 4)
+
+# API response cache (see backend/cache.py). On by default to avoid
+# rebilling providers on demo/rater replays; run_eval.py bypasses it so
+# eval timings always reflect live calls. Set CACHE_TTL_S=0 to disable.
+CACHE_TTL_S = int(os.getenv("CACHE_TTL_S", "300") or 300)
+CACHE_MAX_ENTRIES = int(os.getenv("CACHE_MAX_ENTRIES", "200") or 200)
