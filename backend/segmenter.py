@@ -62,6 +62,10 @@ def _parse(raw: str) -> list[dict]:
 
 
 def segment(text: str, model: str | None = None) -> list[dict]:
+    if config.MOCK_SEGMENTER:
+        from .mock_tts import mock_segment
+
+        return mock_segment(text)
     client = Groq()  # GROQ_API_KEY from env via config-loaded dotenv
     model = model or config.GROQ_ROUTER_MODEL
     last_raw = ""
