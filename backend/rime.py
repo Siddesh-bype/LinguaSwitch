@@ -19,6 +19,12 @@ def speak(text: str, lang: str | None = None, speaker: str | None = None) -> dic
     Returns {"audio": bytes, "ttfa_ms": int, "total_ms": int}
     (ttfa = time to first byte of the audio response body).
     """
+    if not config.RIME_API_KEY:
+        raise RuntimeError(
+            "RIME_API_KEY is not set — copy .env.example to .env and fill it in."
+        )
+    if not text or not text.strip():
+        raise ValueError("text must not be empty")
     body = {
         "text": text,
         "speaker": speaker or config.RIME_SPEAKER,
