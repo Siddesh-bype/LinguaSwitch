@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+httpx
+groq
+python-dotenv
+openai
+websockets
+langchain
+langgraph
+langchain-groq
+librosa

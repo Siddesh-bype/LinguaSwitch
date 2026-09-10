@@ -1,0 +1,54 @@
+{
+  "sentences": [
+    {
+      "id": 1,
+      "text": "Mera order kahan hai, can you check the status please?",
+      "ground_truth": null
+    },
+    {
+      "id": 2,
+      "text": "Sir, ye product damaged hai — I want a return.",
+      "ground_truth": null
+    },
+    {
+      "id": 3,
+      "text": "Haan bhai, wo delivery date confirm kar do.",
+      "ground_truth": null
+    },
+    {
+      "id": 4,
+      "text": "Can you please batao ki refund kab tak aayega?",
+      "ground_truth": null
+    },
+    {
+      "id": 5,
+      "text": "I need this by Friday, warna cancel kar dena padega.",
+      "ground_truth": null
+    },
+    {
+      "id": 6,
+      "text": "Class ka assignment submit karna hai by tomorrow, right?",
+      "ground_truth": null
+    },
+    {
+      "id": 7,
+      "text": "Excuse me, mera reservation confirm hua ya nahi?",
+      "ground_truth": null
+    },
+    {
+      "id": 8,
+      "text": "Wait, actually — kal tak deliver ho jayega na? Just confirming.",
+      "ground_truth": null
+    },
+    {
+      "id": 9,
+      "text": "Thank you, bahut help ho gayi aapki.",
+      "ground_truth": null
+    },
+    {
+      "id": 10,
+      "text": "Haan bhai, wo order — actually can you check — kal tak deliver ho jayega na?",
+      "ground_truth": null
+    }
+  ]
+}

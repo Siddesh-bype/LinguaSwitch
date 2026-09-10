@@ -1,0 +1,22 @@
+# secrets
+.env
+
+# python
+__pycache__/
+venv/
+*.pyc
+
+# node
+node_modules/
+.next/
+
+# generated audio / eval output (regenerate with scripts/)
+data/
+rater_packet/
+
+# os
+.DS_Store
+Thumbs.db
+
+# local agent settings
+.claude/

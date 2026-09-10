@@ -1,0 +1,78 @@
+"""API routes: native (Path A) vs segment-and-route baseline (Path B)."""
+import base64
+import json
+from pathlib import Path
+
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+from . import audio, config, rime, segmenter
+
+router = APIRouter(prefix="/api")
+
+SENTENCES_PATH = Path(__file__).resolve().parent.parent / "sentences.json"
+
+
+class SpeakRequest(BaseModel):
+    text: str
+    router_model: str | None = None
+
+
+@router.post("/speak/native")
+def speak_native(req: SpeakRequest):
+    try:
+        r = rime.speak(req.text, config.DEFAULT_LANG)
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"error": str(e), "provider": "rime", "fallback": "none"})
+    return {
+        "audio_b64": base64.b64encode(r["audio"]).decode(),
+        "ttfa_ms": r["ttfa_ms"],
+        "total_ms": r["total_ms"],
+        "api_calls": 1,
+    }
+
+
+@router.post("/speak/baseline")
+def speak_baseline(req: SpeakRequest):
+    try:
+        segments, segment_ms = segmenter.segment_timed(req.text, req.router_model)
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"error": str(e), "provider": "groq", "fallback": "none"})
+
+    results = []
+    try:
+        for seg in segments:
+            # A Rime voice serves one language: swap speaker per segment.
+            r = rime.speak(
+                seg["text"],
+                config.LANG_MAP.get(seg["lang"], config.DEFAULT_LANG),
+                config.SPEAKER_MAP.get(seg["lang"], config.RIME_SPEAKER),
+            )
+            results.append(r)
+        combined = audio.concat_wav([r["audio"] for r in results])
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"error": str(e), "provider": "rime", "fallback": "none"})
+
+    return {
+        "audio_b64": base64.b64encode(combined).decode(),
+        "segment_ms": segment_ms,
+        "ttfa_ms": segment_ms + (results[0]["ttfa_ms"] if results else 0),
+        "total_ms": segment_ms + sum(r["total_ms"] for r in results),
+        "api_calls": len(segments) + 1,
+        "segments": [
+            {
+                "lang": s["lang"],
+                "text": s["text"],
+                "speaker": config.SPEAKER_MAP.get(s["lang"], config.RIME_SPEAKER),
+                "ttfa_ms": r["ttfa_ms"],
+                "total_ms": r["total_ms"],
+            }
+            for s, r in zip(segments, results)
+        ],
+    }
+
+
+@router.get("/sentences")
+def get_sentences():
+    return json.loads(SENTENCES_PATH.read_text(encoding="utf-8"))
